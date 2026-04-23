@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "projects": {
+      "title": "Video Project",
+      "description": "A project containing a source video and its generated clips",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "originalPath": { "type": "string" },
+        "duration": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "clips": { "type": "array" }
+      },
+      "required": ["id", "userId", "name", "originalPath", "duration", "createdAt", "clips"]
+    },
+    "users": {
+        "title": "User",
+        "description": "User profile information",
+        "type": "object",
+        "properties": {
+          "uid": { "type": "string" },
+          "email": { "type": "string" },
+          "displayName": { "type": "string" },
+          "createdAt": { "type": "number" }
+        },
+        "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "projects",
+      "description": "Video projects owned by users"
+    },
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profiles"
+    }
+  }
+}

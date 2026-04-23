@@ -5,11 +5,12 @@
 
 export type TemplateType = 'tiktok' | 'reels' | 'shorts' | 'none';
 
-export type UserTier = 'free' | 'pro' | 'unlimited';
+export type UserTier = 'free' | 'pro' | 'unlimited' | 'payg';
 
 export interface UserSubscription {
   tier: UserTier;
   credits: number; // in minutes
+  videoCredits?: number; // per video credits
   maxCredits: number;
   renewsAt?: number;
   isAnnual?: boolean;

@@ -95,6 +95,7 @@ export default function App() {
             subscription: {
               tier: 'free',
               credits: 60,
+              videoCredits: 0,
               maxCredits: 60
             }
           };
@@ -133,23 +134,33 @@ export default function App() {
   const upgradePlan = async (tier: UserTier) => {
     if (!user || !profile) return;
     
-    const newMax = tier === 'pro' ? 150 : tier === 'unlimited' ? 3000 : 60;
-    const updatedProfile = {
-      ...profile,
-      subscription: {
+    let updatedSubscription;
+
+    if (tier === 'payg') {
+      updatedSubscription = {
+        ...profile.subscription,
+        tier: 'payg',
+        videoCredits: (profile.subscription.videoCredits || 0) + 1
+      };
+    } else {
+      const newMax = tier === 'pro' ? 150 : tier === 'unlimited' ? 3000 : 60;
+      updatedSubscription = {
         ...profile.subscription,
         tier,
         credits: newMax,
         maxCredits: newMax
-      }
-    };
+      };
+    }
 
     try {
       await updateDoc(doc(db, 'users', user.uid), {
-        subscription: updatedProfile.subscription
+        subscription: updatedSubscription
       });
       setSelectedPlan(null);
-      alert(`Success! Multi-pass activated. You are now on the ${tier.toUpperCase()} plan.`);
+      const msg = tier === 'payg' 
+        ? "Success! 1 Video Credit added to your account."
+        : `Success! Multi-pass activated. You are now on the ${tier.toUpperCase()} plan.`;
+      alert(msg);
       setView('dashboard');
     } catch (error) {
       console.error(error);
@@ -237,6 +248,12 @@ export default function App() {
         method: 'POST',
         body: formData,
       });
+
+      if (!resp.ok) {
+        const errorData = await resp.json();
+        throw new Error(errorData.error || 'Upload failed');
+      }
+
       const data = await resp.json();
       const newProject = { 
         ...data, 
@@ -251,6 +268,7 @@ export default function App() {
       setView('editor');
     } catch (err) {
       console.error(err);
+      alert('Falha ao carregar o vídeo. Verifique se o arquivo é válido e tente novamente.');
     } finally {
       setIsProcessing(false);
     }
@@ -303,6 +321,8 @@ export default function App() {
               setProject={setActiveProject}
               processingStatus={processingStatus}
               setView={setView}
+              user={user}
+              profile={profile}
               key="editor" 
             />
           )}
@@ -357,6 +377,15 @@ function Sidebar({ setView, activeView, user, profile, onLogout, onLogin }: any)
                   style={{ width: `${(profile.subscription.credits / profile.subscription.maxCredits) * 100}%` }}
                 />
              </div>
+             {profile.subscription.videoCredits! > 0 && (
+               <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-green-500/10 border border-green-500/20">
+                  <div className="flex items-center gap-2">
+                    <Video className="w-3 h-3 text-green-500" />
+                    <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">Video Credits</span>
+                  </div>
+                  <span className="text-[10px] font-black text-white">{profile.subscription.videoCredits}</span>
+               </div>
+             )}
              {profile.subscription.tier === 'free' && (
                <button 
                 onClick={() => setView('pricing')}
@@ -429,10 +458,10 @@ function Pricing({ currentTier, onSelectPlan }: { currentTier: UserTier, onSelec
         className="text-center mb-16"
       >
         <h2 className="text-5xl lg:text-7xl font-black text-white mb-6 uppercase italic tracking-tighter">
-          Unleash the <span className="text-gradient-purple">Viral Multi-pass.</span>
+          Pay as you <span className="text-gradient-purple">Go</span>.
         </h2>
         <p className="text-xl text-slate-400 max-w-2xl mx-auto font-medium">
-          Choose the plan that fits your content strategy. Scale from a hobbyist to a content factory.
+          Start for just $1 per video. Scale later with our monthly plans.
         </p>
 
         <div className="mt-10 flex items-center justify-center gap-4">
@@ -450,7 +479,23 @@ function Pricing({ currentTier, onSelectPlan }: { currentTier: UserTier, onSelec
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 w-full">
+        <PricingCard 
+          tier="payg"
+          title="Single Clip"
+          price={1}
+          priceLabel="/ video"
+          credits="1 Clip"
+          features={[
+            "No commitment",
+            "High-priority render",
+            "Full 4K Export",
+            "Remove Watermark"
+          ]}
+          highlight
+          active={currentTier === 'payg'}
+          onSelect={() => onSelectPlan({ tier: 'payg', price: 1, isAnnual: false })}
+        />
         <PricingCard 
           tier="free"
           title="Free"
@@ -477,7 +522,6 @@ function Pricing({ currentTier, onSelectPlan }: { currentTier: UserTier, onSelec
             "Export in 4K",
             "Priority Processing"
           ]}
-          highlight
           active={currentTier === 'pro'}
           onSelect={() => onSelectPlan({ tier: 'pro', price: isAnnual ? 7.50 : 14.50, isAnnual })}
         />
@@ -513,7 +557,7 @@ function Pricing({ currentTier, onSelectPlan }: { currentTier: UserTier, onSelec
   );
 }
 
-function PricingCard({ tier, title, price, credits, features, highlight, active, onSelect }: any) {
+function PricingCard({ tier, title, price, priceLabel, credits, features, highlight, active, onSelect }: any) {
   return (
     <motion.div 
       whileHover={{ y: -10 }}
@@ -525,7 +569,7 @@ function PricingCard({ tier, title, price, credits, features, highlight, active,
     >
       {highlight && (
         <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-accent-primary text-[10px] font-black uppercase tracking-widest text-white shadow-xl">
-          MOST POPULAR
+          {tier === 'payg' ? 'EASY START' : 'MOST POPULAR'}
         </div>
       )}
 
@@ -533,7 +577,7 @@ function PricingCard({ tier, title, price, credits, features, highlight, active,
         <h4 className="text-xl font-bold text-white mb-2 uppercase tracking-tight">{title}</h4>
         <div className="flex items-baseline gap-1">
           <span className="text-5xl font-black text-white italic">${price}</span>
-          <span className="text-slate-500 font-bold uppercase text-[10px]">/ month</span>
+          <span className="text-slate-500 font-bold uppercase text-[10px]">{priceLabel || '/ month'}</span>
         </div>
         <div className="mt-4 inline-block px-3 py-1 rounded-lg bg-white/5 text-accent-primary text-[11px] font-black uppercase tracking-widest">
            {credits}
@@ -1027,11 +1071,13 @@ function Dashboard({ projects, profile, setView, onSelectProject }: { projects: 
 
 const aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-function Editor({ project, setProject, processingStatus, setView }: { 
+function Editor({ project, setProject, processingStatus, setView, user, profile }: { 
   project: VideoProject, 
   setProject: React.Dispatch<React.SetStateAction<VideoProject | null>>,
   processingStatus: Record<string, ProcessingProgress>,
-  setView: React.Dispatch<React.SetStateAction<'landing' | 'dashboard' | 'editor'>>
+  setView: React.Dispatch<React.SetStateAction<'landing' | 'dashboard' | 'editor' | 'pricing'>>,
+  user: any,
+  profile: UserProfile | null
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1201,8 +1247,21 @@ Transcrito: "${dummyTranscript}"`,
   };
 
   const processClip = async (clipId: string) => {
+    if (!profile) return;
+    
     const clip = project.clips.find(c => c.id === clipId);
     if (!clip) return;
+
+    // Credit Validation
+    const clipDurationMinutes = (clip.endTime - clip.startTime) / 60;
+    const hasVideoCredits = (profile.subscription.videoCredits || 0) > 0;
+    const hasTimeCredits = profile.subscription.credits >= clipDurationMinutes;
+
+    if (!hasVideoCredits && !hasTimeCredits) {
+      alert("You don't have enough credits to process this clip. Buy 1 clip for $1 or upgrade to a monthly plan!");
+      setView('pricing');
+      return;
+    }
 
     setProject(prev => {
       if (!prev) return null;
@@ -1213,6 +1272,22 @@ Transcrito: "${dummyTranscript}"`,
     });
 
     try {
+      // Deduct credits in Firestore
+      const updateData: any = {};
+      if (hasVideoCredits) {
+        updateData.subscription = {
+          ...profile.subscription,
+          videoCredits: profile.subscription.videoCredits! - 1
+        };
+      } else {
+        updateData.subscription = {
+          ...profile.subscription,
+          credits: profile.subscription.credits - clipDurationMinutes
+        };
+      }
+
+      await updateDoc(doc(db, 'users', user!.uid), updateData);
+
       await fetch('/api/process-clip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1261,6 +1336,18 @@ Transcrito: "${dummyTranscript}"`,
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {profile && (
+            <div className="flex items-center gap-3 mr-4">
+              {profile.subscription.videoCredits! > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 text-green-500 text-[10px] font-black uppercase tracking-widest border border-green-500/20">
+                  <Video className="w-3 h-3" /> {profile.subscription.videoCredits} Video Credits
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent-primary/10 text-accent-primary text-[10px] font-black uppercase tracking-widest border border-accent-primary/20">
+                <Clock className="w-3 h-3" /> {Math.floor(profile.subscription.credits)} Min Left
+              </div>
+            </div>
+          )}
           <button 
             onClick={requestAICut}
             className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-accent-primary/20 text-accent-primary hover:bg-accent-primary/30 transition-colors font-medium border border-accent-primary/50"
@@ -1471,7 +1558,19 @@ Transcrito: "${dummyTranscript}"`,
                                 : 'bg-accent-primary/20 text-accent-primary hover:bg-accent-primary/30 border border-accent-primary/30'
                             }`}
                           >
-                            {clip.status === 'processing' ? 'Processing...' : `Format ${clip.isVertical ? 'Vertical' : 'Original'}`}
+                            {clip.status === 'processing' ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <span>{processingStatus[clip.id]?.message || 'Processing...'}</span>
+                                {processingStatus[clip.id]?.percent !== undefined && (
+                                  <div className="w-24 h-1 bg-white/10 rounded-full overflow-hidden">
+                                    <div 
+                                      className="h-full bg-accent-primary transition-all duration-300" 
+                                      style={{ width: `${processingStatus[clip.id].percent}%` }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ) : `Format ${clip.isVertical ? 'Vertical' : 'Original'}`}
                           </button>
                         )}
                         <button 

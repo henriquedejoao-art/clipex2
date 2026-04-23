@@ -27,7 +27,8 @@ async function startServer() {
     cors: { origin: "*" },
   });
 
-  app.use(express.json());
+  app.use(express.json({ limit: '500mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '500mb' }));
   app.use("/uploads", express.static(UPLOAD_DIR));
   app.use("/outputs", express.static(OUTPUT_DIR));
 
@@ -39,16 +40,38 @@ async function startServer() {
       cb(null, `${uuidv4()}${ext}`);
     },
   });
-  const upload = multer({ storage });
+  const upload = multer({ 
+    storage,
+    limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit
+  });
 
   // API Routes
   app.post("/api/upload", upload.single("video"), (req: any, res) => {
-    if (!req.file) return res.status(400).json({ error: "No video uploaded" });
+    console.log("Upload request received");
+    if (!req.file) {
+      console.error("No file in request");
+      return res.status(400).json({ error: "No video uploaded" });
+    }
+
+    console.log(`File uploaded to: ${req.file.path}`);
 
     // Get video duration using ffprobe
     ffmpeg.ffprobe(req.file.path, (err, metadata) => {
-      if (err) return res.status(500).json({ error: "Failed to probe video" });
+      if (err) {
+        console.error("FFprobe error:", err);
+        // Fallback for duration if ffprobe fails, so upload at least finishes
+        return res.json({
+          id: uuidv4(),
+          name: req.file?.originalname,
+          originalPath: `/uploads/${req.file?.filename}`,
+          duration: 30, // Fallback duration
+          createdAt: Date.now(),
+          clips: [],
+          warning: "FFprobe failed, using fallback duration"
+        });
+      }
       
+      console.log("FFprobe metadata received");
       res.json({
         id: uuidv4(),
         name: req.file?.originalname,
@@ -66,31 +89,34 @@ async function startServer() {
     const outputFileName = `clip-${clipId}.mp4`;
     const outputPath = path.join(OUTPUT_DIR, outputFileName);
 
+    console.log(`Starting processing for clip ${clipId}: ${startTime}s for ${duration}s`);
+
     let command = ffmpeg(inputPath)
       .setStartTime(startTime)
       .setDuration(duration);
 
     if (isVertical) {
       // 9:16 crop: center crop from horizontal
-      // Assuming 1920x1080 -> 608x1080 (9:16 approx or exact crop)
-      // Complexity: we use vf "crop=in_h*9/16:in_h"
       command = command.videoFilters("crop=in_h*9/16:in_h");
     }
 
     command
-      .on("start", () => {
-        io.emit("progress", { clipId, percent: 0, message: "Starting clip processing..." });
+      .on("start", (commandLine) => {
+        console.log("FFmpeg command:", commandLine);
+        io.emit("progress", { clipId, percent: 0, message: "Initializing FFmpeg..." });
       })
       .on("progress", (progress) => {
-        io.emit("progress", { clipId, percent: progress.percent, message: "Editing video frames..." });
+        io.emit("progress", { clipId, percent: progress.percent, message: `Processing... ${Math.round(progress.percent || 0)}%` });
       })
       .on("error", (err) => {
         console.error("FFmpeg error:", err);
-        io.emit("progress", { clipId, percent: 0, message: "Processing failed: " + err.message });
+        io.emit("progress", { clipId, percent: 0, message: "Error: " + err.message });
       })
       .on("end", () => {
-        io.emit("progress", { clipId, percent: 100, message: "Clip ready!", outputPath: `/outputs/${outputFileName}` });
+        console.log(`Finished processing clip ${clipId}`);
+        io.emit("progress", { clipId, percent: 100, message: "Done!", outputPath: `/outputs/${outputFileName}` });
       })
+      .overwriteOutput()
       .save(outputPath);
 
     res.json({ status: "processing", clipId });
